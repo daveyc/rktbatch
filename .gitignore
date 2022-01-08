@@ -1,0 +1,56 @@
+# binaries
+lib/
+bin/
+rktbatch
+
+#object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# makedepend files
+*.u
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.jar
+*.lib
+*.a
+*.la
+*.lo
+*.x
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.dbg
+
+# RD/z backup files
+.*~
+
+# test binaries
+test/test-dataset-allocator
+test/test-strings
+test/test-sockets
+
+# listings
+*.lst
+

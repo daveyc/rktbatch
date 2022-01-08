@@ -1,0 +1,7 @@
+*.c      zos-working-tree-encoding=ibm-1047 git-encoding=iso8859-1
+*.cpp    zos-working-tree-encoding=ibm-1047 git-encoding=iso8859-1
+*.h      zos-working-tree-encoding=ibm-1047 git-encoding=iso8859-1
+*.hpp    zos-working-tree-encoding=ibm-1047 git-encoding=iso8859-1
+*.md     zos-working-tree-encoding=ibm-1047 git-encoding=iso8859-1
+*.s      zos-working-tree-encoding=ibm-1047 git-encoding=iso8859-1
+Makefile zos-working-tree-encoding=ibm-1047 git-encoding=iso8859-1
