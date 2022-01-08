@@ -240,7 +240,7 @@ static int run(int argc, const char *argv[]) {
             int numBytes = dd_stdin.read(buf, sizeof buf);
             if (numBytes > 0) {
                 shell_stdin.write(buf, numBytes);
-            } else {
+            } else { // shell script has been fully read
                 shell_stdin.close(Pipe::WRITE);
                 dd_stdin.close();
             }
@@ -260,7 +260,7 @@ static int run(int argc, const char *argv[]) {
 
 int main(int argc, const char *argv[]) {
     setenv("_EDC_ADD_ERRNO2", "1", 1); // add errno2 info to LE messages
-    signal(SIGPIPE, SIG_IGN); // ignore pipe signals           
+    signal(SIGPIPE, SIG_IGN); // ignore broken pipe signals           
     int rc = 0;
     try {
         rc = run(argc, argv);

@@ -54,3 +54,8 @@ test/test-sockets
 # listings
 *.lst
 
+# Slickedit project files 
+*.vpj
+*.vpw
+*.vpwhist
+*.vtg
