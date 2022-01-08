@@ -11,7 +11,7 @@ Build using `make`. To install to an MVS load library which will default to `$US
 ## Running
 
 This example shows how to create a Jira using Rocket ported tools and integration to the MVS file system using `DD:JIRADATA`. Note that `PARM='/ /bin/sh -L'` is not required as `RKTBATCH` will run the default shell
-but if the default shell is `BASH` which uses `fork/exec` then data set integration will not work. Only `/bin/sh` supports local spawn.
+but if the default shell is `bash` which uses `fork/exec` then data set integration will not work. Only `/bin/sh` supports local spawn.
 
 ```
 //NEWJIRA  JOB  NOTIFY=&SYSUID                                 
