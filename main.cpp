@@ -48,19 +48,19 @@ struct DeletePtr {
     void operator()(T *ptr) const { std::free((void *)ptr); }
 };
 
-char* dupstr(const char *old) {
+static char* dupstr(const char *old) {
     char *s = strdup(old);
     if (!s) throw std::bad_alloc();
     return s;
 }
 
-char* dupstr(const std::string &old) { return dupstr(old.c_str()); }
+static char* dupstr(const std::string &old) { return dupstr(old.c_str()); }
 
 static int shutdown_ecb = 0;
 static int return_code = 0;
 static pid_t child;
 
-int killProcess(pid_t pid, int signal) {
+static int killProcess(pid_t pid, int signal) {
     int status;
     kill(-pid, signal);
     waitpid(pid, &status, 0);
