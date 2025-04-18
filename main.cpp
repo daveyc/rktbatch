@@ -19,9 +19,9 @@
 #include <vector>
 #include <algorithm>
 
-#include "errors.hpp"
-#include "file.hpp"
-#include "pipe.hpp"
+#include "include/errors.hpp"
+#include "include/file.hpp"
+#include "include/pipe.hpp"
 
 #pragma runopts(posix(on))
 
@@ -37,7 +37,7 @@ static void alloc(const std::string &alloc) {
     if (rc != 0) std::runtime_error("BPXWDYN allocation failed");
 }
 
-inline int duplicate(int oldfd) {
+static int duplicate(int oldfd) {
     int fd = dup(oldfd);
     if (fd == -1) throwError("dup() failed");
     return fd;
