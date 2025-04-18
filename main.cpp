@@ -67,7 +67,7 @@ static int killProcess(pid_t pid, int signal) {
     __asm(" POST (%0),0   post the shutdown ECB\n"
          :
          : "a"(&shutdown_ecb)
-         : "r0 r1");
+         : "r0", "r1" );
     return 0;
 }
 
@@ -102,7 +102,7 @@ extern "C" void handle_sigchld(int sig) {
     __asm(" POST (%0),0   post the shutdown ECB\n"
           :
           : "a"(&shutdown_ecb)
-          : "r0 r1");
+          : "r0", "r1");
 }
 
 static void ltrim(std::string &s, const std::string &delims = " \t\n") {
