@@ -8,6 +8,19 @@ by copying data sets to the file system.
 
 Build using `make`. To install to an MVS load library which will default to `$USER.LOAD(RKTBATCH)` run `make install`.
 
+## Usage
+```
+Usage: RKTBATCH [--help] [--version] [--disable-console-commands] [--log-level VAR] [program]...
+
+Positional arguments:
+  program                     the name of the program to run. Default is the shell [nargs: 0 or more]
+
+Optional arguments:
+  -h, --help                  shows help message and exits
+  -v, --version               prints version information and exits
+  --disable-console-commands  disables console commands; by default only STOP (P) is supported
+  --log-level                 the log level - trace, debug, info, warn, error [nargs=0..1] [default: "info"]
+```
 ## Running
 
 This example shows how to create a Jira using Rocket ported tools and integration to the MVS file system using `DD:JIRADATA`. Note that `PARM='/ /bin/sh -L'` is not required as `RKTBATCH` will run the default shell
@@ -15,7 +28,14 @@ but if the default shell is `bash` which uses `fork/exec` then data set integrat
 
 ```
 //NEWJIRA  JOB  NOTIFY=&SYSUID                                 
-//RKTBATCH EXEC PGM=RKTBATCH,PARM='/ /bin/sh -L'               
+//RKTBATCH EXEC PGM=RKTBATCH,PARMDD=PARM
+//SYSOUT   DD  SYSOUT=*        
+//SYSPRINT DD  SYSOUT=*        
+//STDENV   DD  *               
+# _BPX_SHAREAS=NO <-- uncomment to run subprocesses in separate address spaces                
+/*                             
+//PARM     DD  *               
+/ --log-level trace /bin/sh -L                
 //STDERR   DD  SYSOUT=*                                        
 //STDOUT   DD  SYSOUT=*                                        
 //STDIN    DD  *                                               

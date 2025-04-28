@@ -3,6 +3,10 @@ lib/
 bin/
 rktbatch
 
+# submodules
+argparse/
+spdlog/
+
 #object files
 *.o
 *.ko
@@ -62,3 +66,5 @@ test/test-sockets
 
 # IntelliJ project files
 .idea/
+/cmake-build-default/
+/cmake-build-default-event-trace/

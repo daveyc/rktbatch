@@ -2,12 +2,14 @@
 
 #include <unistd.h>
 
+#include <utility>
+
 #include "errors.hpp"
 
 /** Wrapper for pipes with RAII semantics */
 class Pipe {
 private:
-    int fd[2];
+    int fd[2]{-1, -1};
 
 public:
     static const int READ = 0;
@@ -15,12 +17,33 @@ public:
 
 public:
     Pipe() {
-        fd[0] = -1; fd[1] = -1;
         auto rc = pipe(fd);
         if (rc == -1) throwError("Error creating pipe");
     }
 
-    int fileno(int side) const {
+    Pipe(Pipe const & other) = delete;
+    Pipe & operator=(Pipe const & other) = delete;
+
+    Pipe(Pipe && other) noexcept {
+        *this = std::move(other);
+    }
+
+    Pipe & operator=(Pipe && other) noexcept {
+        if (this != &other) {
+            close();
+            fd[0] = other.fd[0];
+            fd[1] = other.fd[1];
+            other.fd[0] = -1;
+            other.fd[1] = -1;
+        }
+        return *this;
+    }
+
+    ~Pipe() {
+        close();
+    }
+
+    [[nodiscard]] int fileno(int side) const {
         if (side < 0 || side > 1) throw std::invalid_argument("Logic error: Pipe indexes must be 0 or 1");
         return fd[side];
     }
@@ -35,11 +58,12 @@ public:
 
     bool is_write_open() const { return is_open(WRITE); }
 
-    ~Pipe() {
+    void close(int side) { if (is_open(side)) ::close(fd[side]); fd[side] = -1; }
+
+    void close() {
         close(READ);
         close(WRITE);
     }
-    void close(int side) { if (is_open(side)) ::close(fd[side]); fd[side] = -1; }
 
     int read(void *buffer, size_t size) {
         int bytesRead;
