@@ -209,6 +209,10 @@ struct UnixBatchRunner {
         File dataset_stdout("//DD:STDOUT", "w", false);
         File dataset_stderr("//DD:STDERR", "w", false);
 
+        spdlog::debug("stdout.is_open({}), stderr.is_open({}))",
+                      dataset_stdout.is_open() ? "true" : "false",
+                      dataset_stderr.is_open() ? "true" : "false");
+
         File * dataset_stdout_ptr = dataset_stdout.is_open() ? &dataset_stdout : &sysout;
         File * dataset_stderr_ptr = dataset_stderr.is_open() ? &dataset_stderr : &sysout;
 
