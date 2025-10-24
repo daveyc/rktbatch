@@ -2,11 +2,16 @@
 
 `RKTBATCH` is a batch utility for running shell scripts, or any z/OS UNIX command. It differs from IBM utilities such as `BPXBATCH` in that `STDIN` can contain shell script source code. 
 Another important different is that `RKTBATCH` uses local spawn which runs the script in the same address space so DD data sets allocations can be used in scripts eliminating the need for data at rest
-by copying data sets to the file system. 
+by copying data sets to the file system.
 
 ## Building
 
-Build using `make`. To install to an MVS load library which will default to `$USER.LOAD(RKTBATCH)` run `make install`.
+### Install dependencies
+```
+git submodule update --init --recursive
+```
+
+Build using `make`. To install to an MVS load library, run `make install`. By default, it installs to `$USER.LOAD(RKTBATCH)`.
 
 ## Usage
 ```
@@ -77,8 +82,7 @@ curl --request POST \               # POST API call to Jira
 ```
 ## Console commands
 
-`RKTBATCH` supports the MVS STOP command which is useful if the utility is running a started task. No other batch shell utility such as `COZBATCH` supports this feature. 
-
+`RKTBATCH` implements the MVS STOP command, making it possible to stop the utility when it is running as a started task. Other batch shell utilities such as `COZBATCH` do not offer this capability.
 ```
 P MYJOB
 ```
