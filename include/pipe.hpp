@@ -12,8 +12,8 @@ private:
     int fd[2]{-1, -1};
 
 public:
-    static const int READ = 0;
-    static const int WRITE = 1;
+    static constexpr int READ = 0;
+    static constexpr int WRITE = 1;
 
 public:
     Pipe() {
@@ -43,7 +43,7 @@ public:
         close();
     }
 
-    [[nodiscard]] int fileno(int side) const {
+    int fileno(int side) const {
         if (side < 0 || side > 1) throw std::invalid_argument("Logic error: Pipe indexes must be 0 or 1");
         return fd[side];
     }
@@ -65,7 +65,7 @@ public:
         close(WRITE);
     }
 
-    int read(void *buffer, size_t size) {
+    int read(void *buffer, size_t size) const {
         int bytesRead;
         do {
             bytesRead = ::read(fd[READ], buffer, size);
@@ -76,7 +76,7 @@ public:
         return bytesRead;
     }
 
-    int write(const void *buf, size_t size) {
+    int write(const void *buf, size_t size) const {
         int bytesWritten;
         do {
             bytesWritten = ::write(fd[WRITE], buf, size);
@@ -87,5 +87,5 @@ public:
         return bytesWritten;
     }
 
-    int write(const char *str)  { return write(str,  strlen(str)); }
+    int write(const char *str) const  { return write(str,  strlen(str)); }
 };
