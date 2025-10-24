@@ -1,8 +1,8 @@
 # RKTBATCH
 
-`RKTBATCH` is a batch utility for running shell scripts, or any z/OS UNIX command. It differs from IBM utilities such as `BPXBATCH` in that `STDIN` can contain shell script source code. 
-Another important different is that `RKTBATCH` uses local spawn which runs the script in the same address space so DD data sets allocations can be used in scripts eliminating the need for data at rest
-by copying data sets to the file system.
+`RKTBATCH` is a batch utility that allows a Unix command or shell script to be executed in a batch job step. Unlike less powerful IBM utilities such as `BPXBATCH`,
+`RKTBATCH` is designed to simplify the integration of z/OS Unix with traditional batch jobs.
+
 
 ## Building
 
