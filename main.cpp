@@ -3,7 +3,9 @@
 #include <sys/wait.h>
 #include <sys/stat.h>
 #include <sys/msg.h>
+#ifdef __MVS__
 #include <sys/__messag.h>
+#endif
 #include <spawn.h>
 #include <pthread.h>
 #include <pwd.h>
@@ -22,7 +24,9 @@
 #include "errors.hpp"
 #include "file.hpp"
 #include "pipe.hpp"
-#include "strutils.hpp"
+#include "strings.hpp"
+#include "syscalls.hpp"
+#include "c_string_vector.hpp"
 
 #include "argparse/argparse.hpp"
 
@@ -32,26 +36,28 @@
 
 #pragma runopts(posix(on))
 
-using namespace strutils;
+namespace syscalls = rkt::syscalls;
+namespace strings = rkt::strings;
 
-extern "OS_UPSTACK" { int bpxwdyn_fn(const char *); }
+extern "OS_UPSTACK" {
+int bpxwdyn_fn(const char*);
+}
 
 using bpxwdyn_t = decltype(bpxwdyn_fn);
 
 struct UnixBatchRunner {
-
-    static UnixBatchRunner * instance;
+    static UnixBatchRunner* instance;
     int shutdown_ecb = 0;
-    int return_code = 0;
     int fd_map[3];
-    pid_t child = 0;
+    pid_t child_pid = 0;
 
     UnixBatchRunner() { instance = this; }
 
-    void alloc(const std::string &alloc) {
-        static bpxwdyn_t *bpxwdyn = nullptr;
+    // Allocate a z/OS dataset using BPXWDYN. Throws on failure.
+    void alloc(const std::string& alloc) {
+        static bpxwdyn_t* bpxwdyn = nullptr;
         if (!bpxwdyn) {
-            bpxwdyn = reinterpret_cast<bpxwdyn_t *>(fetch("BPXWDY2"));
+            bpxwdyn = reinterpret_cast<bpxwdyn_t*>(fetch("BPXWDY2"));
             if (!bpxwdyn) throw std::runtime_error("Fetch failed for BPXWDY2");
         }
         if (bpxwdyn(alloc.c_str()) != 0) {
@@ -59,137 +65,114 @@ struct UnixBatchRunner {
         }
     }
 
-    int duplicate(int oldfd) {
-        int fd = dup(oldfd);
-        if (fd == -1) throwError("dup() failed");
-        return fd;
-    }
-
-    struct delete_ptr {
-        template<typename T>
-        void operator()(T *ptr) const { std::free((void *) ptr); }
-    };
-
-    void kill_process(pid_t pid, int signal) {
+    // Sends a signal to the process group (-pid) then waits for the child.
+    // Note: waitpid may block; ensure this is not called from a signal handler.
+    static void kill_process(pid_t pid, int signal) {
         spdlog::debug("Sending signal {} to PID {}", signal, pid);
-        kill(-pid, signal);
-        int status;
-        waitpid(pid, &status, 0);
+        syscalls::checked_kill(-pid, signal);
     }
 
+    // SIGCHLD handler.
+    // Posts the shutdown ECB to wake the main select loop.
     static void handle_sigchld(int /*sig*/) {
-        spdlog::debug("Handling SIGCHLD signal");
-        int status = 0;
-        while (waitpid(-1, &status, WNOHANG) > 0) {} // reap zombies
-        if (WIFEXITED(status)) {
-            instance->return_code = WEXITSTATUS(status);
-        }
         post_shutdown_ecb(&instance->shutdown_ecb);
     }
 
-    static void post_shutdown_ecb(int *ecb) {
-        spdlog::debug("Posting shutdown ECB from timer");
+    // Post the given ECB to wake a waiting select or any WAIT.
+    static void post_shutdown_ecb(int* ecb) {
         __asm(" POST (%[ecb]),0\n" : : [ecb]"a"(ecb) : "r0", "r1");
     }
 
-    std::vector<const char *> make_env() {
-        std::vector<const char *> envp = {
-            dupstr("LIBPATH=/lib:/usr/lib"),
-            dupstr("PATH=/bin:/usr/bin"),
-            dupstr("_BPXK_AUTOCVT=ON"),
-            dupstr("_BPXK_JOBLOG=STDERR"),
-            dupstr("_BPX_SPAWN_SCRIPT=YES"),
-            dupstr("_EDC_ADD_ERRNO2=1")
+    // Construct the environment variables array for the spawned process.
+    rkt::c_string_vector make_env() {
+        rkt::c_string_vector envp = {
+            "LIBPATH=/lib:/usr/lib",
+            "PATH=/bin:/usr/bin",
+            "_BPXK_AUTOCVT=ON",
+            "_BPXK_JOBLOG=STDERR",
+            "_BPX_SPAWN_SCRIPT=YES",
+            "_EDC_ADD_ERRNO2=1"
         };
 
-        const char *userid = __getlogin1();
-        if (!userid) throwError("__getlogin1() failed");
+        // Set HOME and PWD to the user's home directory.
+        passwd* p = syscalls::checked_getpwnam(syscalls::checked_getlogin1());
+        envp.push_back("HOME=" + std::string(p->pw_dir));
+        envp.push_back("PWD=" + std::string(p->pw_dir));
 
-        struct passwd *p = getpwnam(userid);
-        if (!p) throwError("getpwnam() failed");
-
-        envp.push_back(dupstr("HOME=" + std::string(p->pw_dir)));
-        envp.push_back(dupstr("PWD=" + std::string(p->pw_dir)));
-
+        // Read additional environment variables from STDENV data set.
         bool share_address_space = true; // default to sharing address space
-        std::ifstream stdenv("//DD:STDENV");
-        if (stdenv) {
+        std::ifstream stdenv_file("//DD:STDENV");
+        if (stdenv_file) {
             std::string line;
-            while (std::getline(stdenv, line)) {
-                ltrim(line);
+            while (std::getline(stdenv_file, line)) {
+                strings::ltrim(line);
                 if (!line.empty() && line[0] != '#') {
-                    if (starts_with(line, "_BPX_SHAREAS=")) { // start_with hack
+                    if (strings::starts_with(line, "_BPX_SHAREAS=")) {
                         share_address_space = false; // use the explict value in STDENV
                     }
-                    envp.push_back(dupstr(line));
+                    envp.push_back(line);
                 }
             }
         }
+        // If not overridden, enforce shared address space.
         if (share_address_space) {
-            envp.push_back(dupstr("_BPX_SHAREAS=MUST"));
+            envp.push_back("_BPX_SHAREAS=MUST");
         }
         envp.push_back(nullptr);
 
         return envp;
     }
 
+    // Install signal handlers used by the batch runner.
+    // SIGPIPE is ignored and SIGCHLD triggers shutdown handling.
     void setup_signal_handlers() {
         signal(SIGPIPE, SIG_IGN);
         struct sigaction sa = {};
-        sa.sa_handler = UnixBatchRunner::handle_sigchld;
+        sa.sa_handler = handle_sigchld;
         sigemptyset(&sa.sa_mask);
         sa.sa_flags = SA_RESTART | SA_NOCLDSTOP;
-        if (sigaction(SIGCHLD, &sa, nullptr) == -1) {
-            throwError("sigaction() failed");
-        }
+        syscalls::checked_sigaction(SIGCHLD, &sa, nullptr);
     }
 
-    void spawn_program(const std::vector<std::string> &args) {
+    // Spawn the target program or login shell with redirected I/O.
+    // Sets up process group and inheritance options.
+    void spawn_program(const rkt::c_string_vector& args) {
         auto envp = make_env();
-        if (!args.empty()) {
-            spdlog::info("Running program {}", args[0]);
-            std::vector<const char *> spawn_args;
-            for (auto &arg: args) spawn_args.push_back(dupstr(arg));
-            spawn_args.push_back(nullptr);
-
+        if (!args.is_empty()) {
+            spdlog::debug("Running program {}", args[0]);
+            args.push_back(nullptr); // Null-terminate argv array
             __inheritance inherit = {};
             inherit.flags = SPAWN_SETGROUP | SPAWN_SETSIGDEF | SPAWN_SETSIGMASK;
             inherit.pgroup = SPAWN_NEWPGROUP;
-
-            child = __spawnp2(spawn_args[0], 3, fd_map, &inherit, &spawn_args[0], &envp[0]);
-            std::for_each(spawn_args.begin(), spawn_args.end(), delete_ptr());
-
-            if (child == -1) throwError("__spawnp2() failed running program " + std::string(spawn_args[0]));
+            child_pid = syscalls::checked_spawnp2(spawn_args[0], 3, fd_map, &inherit, &args[0], &envp[0]);
         } else {
-            const char *userid = __getlogin1();
-            struct passwd *p = getpwnam(userid);
+            // No program specified; spawn the user's login shell.
+            spdlog::debug("No program specified; spawning login shell");
+            const char* userid = syscalls::checked_getlogin1();
+            passwd* p = syscalls::checked_getpwnam(userid);
             std::string shell_cmd = "-" + std::string(p->pw_shell);
-
-            const char *spawn_argv[] = {shell_cmd.c_str(), nullptr};
-
-            child = __spawnp2(p->pw_shell, 3, fd_map, nullptr, spawn_argv, &envp[0]);
-            if (child == -1) throwError("__spawnp2() failed running shell");
+            const char* spawn_argv[] = {shell_cmd.c_str(), nullptr};
+            child_pid = syscalls::checked_spawnp2(p->pw_shell, 3, fd_map, nullptr, spawn_argv, &envp[0]);
         }
-
-        std::for_each(envp.begin(), envp.end(), delete_ptr());
     }
 
-    int run(int argc, const char *argv[]) {
-        spdlog::set_level(spdlog::level::trace);
+    // Main execution loop.
+    // Parses arguments, sets up I/O redirection, spawns the child, and relays stdin/stdout/stderr until termination.
+    int run(int argc, const char* argv[]) {
         bool disable_console_commands = false;
         std::string log_level;
         argparse::ArgumentParser program("RKTBATCH");
         program.add_argument("--disable-console-commands")
-            .help("disables console commands; by default only STOP (P) is supported")
-            .store_into(disable_console_commands);
+               .help("disables console commands; by default only STOP (P) is supported")
+               .store_into(disable_console_commands);
         program.add_argument("--log-level")
-            .help("the log level - trace, debug, info, warn, error")
-            .default_value(std::string{"info"})
-            .choices("trace", "debug", "info", "warn", "error")
-            .store_into(log_level);
+               .help("the log level - trace, debug, info, warn, error")
+               .default_value(std::string{"info"})
+               .choices("trace", "debug", "info", "warn", "error")
+               .store_into(log_level);
         program.add_argument("program")
-            .remaining()
-            .help("the name of the program to run. Default is the shell");
+               .remaining()
+               .help("the name of the program to run. Default is the shell");
 
         program.parse_args(argc, argv);
 
@@ -199,36 +182,40 @@ struct UnixBatchRunner {
         else if (log_level == "warn") spdlog::set_level(spdlog::level::warn);
         else if (log_level == "error") spdlog::set_level(spdlog::level::err);
 
-        File sysout("//DD:SYSOUT", "w", false);
+        // Ensure SYSOUT is allocated.
+        rkt::file sysout("//DD:SYSOUT", "w", false);
         if (!sysout.is_open()) {
             alloc("ALLOC FI(SYSOUT) SYSOUT(X) MSG(2)");
             sysout.open("//DD:SYSOUT", "w");
         }
 
-        File dataset_stdin("//DD:STDIN", "r");
-        File dataset_stdout("//DD:STDOUT", "w", false);
-        File dataset_stderr("//DD:STDERR", "w", false);
+        // Open STDIN, STDOUT, STDERR datasets.
+        rkt::file dataset_stdin("//DD:STDIN", "r");
+        rkt::file dataset_stdout("//DD:STDOUT", "w", false);
+        rkt::file dataset_stderr("//DD:STDERR", "w", false);
 
         spdlog::debug("stdout.is_open({}), stderr.is_open({}))",
                       dataset_stdout.is_open() ? "true" : "false",
                       dataset_stderr.is_open() ? "true" : "false");
 
-        File * dataset_stdout_ptr = dataset_stdout.is_open() ? &dataset_stdout : &sysout;
-        File * dataset_stderr_ptr = dataset_stderr.is_open() ? &dataset_stderr : &sysout;
+        // Use SYSOUT if STDOUT or STDERR datasets are not allocated.
+        rkt::file* dataset_stdout_ptr = dataset_stdout.is_open() ? &dataset_stdout : &sysout;
+        rkt::file* dataset_stderr_ptr = dataset_stderr.is_open() ? &dataset_stderr : &sysout;
 
-        Pipe pipe_stdin, pipe_stdout, pipe_stderr;
+        // Create pipes for child process I/O redirection.
+        rkt::pipe pipe_stdin, pipe_stdout, pipe_stderr;
+        fd_map[0] = syscalls::dup(pipe_stdin.read_handle());
+        fd_map[1] = syscalls::dup(pipe_stdout.write_handle());
+        fd_map[2] = syscalls::dup(pipe_stderr.write_handle());
 
-        fd_map[0] = duplicate(pipe_stdin.read_handle());
-        fd_map[1] = duplicate(pipe_stdout.write_handle());
-        fd_map[2] = duplicate(pipe_stderr.write_handle());
+        // Close unused pipe ends in the parent process.
+        pipe_stdin.close_read();
+        pipe_stdout.close_write();
+        pipe_stderr.close_write();
 
-        pipe_stdin.close(Pipe::READ);
-        pipe_stdout.close(Pipe::WRITE);
-        pipe_stderr.close(Pipe::WRITE);
-
-        umask(022);
         setup_signal_handlers();
 
+        // Start console command listener thread if not disabled.
         if (!disable_console_commands) {
             std::thread console_thread([this]() {
                 spdlog::info("Listening for console commands");
@@ -241,15 +228,26 @@ struct UnixBatchRunner {
                     }
                     if (concmd == _CC_stop) {
                         spdlog::info("STOP command received");
-                        kill_process(child, SIGTERM);
+                        kill_process(child_pid, SIGTERM);
                     }
                 }
             });
             console_thread.detach();
         }
 
+
         spawn_program(program.get<std::vector<std::string>>("program"));
 
+        // Main I/O relay loop.
+        // - Build read/write fd_sets for select: monitor child's stdout/stderr for readability
+        //   and the parent → child stdin pipe for writability.
+        // - Use selectex with the shutdown ECB so the loop can be interrupted by SIGCHLD.
+        // - If selectex returns 0, the shutdown ECB was posted → exit the loop.
+        // - When the stdin pipe is writable, read from the STDIN dataset and write to the
+        //   child's stdin pipe. If read returns <= 0, close the write end to signal EOF
+        //   to the child and close the dataset.
+        // - When the child's stdout/stderr are readable, read from the corresponding pipe
+        //   and write to the appropriate dataset (STDOUT/STDERR or SYSOUT fallback).
         int maxfd = std::max({pipe_stdin.write_handle(), pipe_stdout.read_handle(), pipe_stderr.read_handle()});
         char buf[4096];
 
@@ -257,51 +255,73 @@ struct UnixBatchRunner {
             fd_set readfds, writefds;
             FD_ZERO(&readfds);
             FD_ZERO(&writefds);
-
+            // Monitor stdin pipe for writability if still open.
+            // This indicates we can send more data to the child.
             if (pipe_stdin.is_write_open()) {
                 FD_SET(pipe_stdin.write_handle(), &writefds);
             }
-
+            // Monitor child's stdout and stderr for readable data.
             FD_SET(pipe_stdout.read_handle(), &readfds);
             FD_SET(pipe_stderr.read_handle(), &readfds);
-
-            int select_rc = selectex(maxfd + 1, &readfds, &writefds, nullptr, nullptr, &shutdown_ecb);
-
-            if (select_rc < 0) throwError("selectex() failed");
-            if (select_rc == 0) break; // shutdown requested
-
-            if (pipe_stdin.is_write_open() && FD_ISSET(pipe_stdin.write_handle(), &writefds)) {
+            // Wait for I/O activity or for the shutdown ECB to be posted by the SIGCHLD handler.
+            int select_rc = syscalls::checked_selectex(
+                maxfd + 1,
+                &readfds,
+                &writefds,
+                nullptr,
+                nullptr,
+                &shutdown_ecb
+            );
+            // selectex returned because the shutdown ECB was posted (child exited or shutdown requested).
+            if (select_rc == 0) break;
+            // If the child's stdin pipe is writable, feed it data from the STDIN dataset.
+            if (pipe_stdin.is_write_open() &&
+                FD_ISSET(pipe_stdin.write_handle(), &writefds)) {
                 int bytes_read = dataset_stdin.read(buf, sizeof(buf));
                 spdlog::trace("Read {} bytes from STDIN", bytes_read);
                 if (bytes_read > 0) {
-                    pipe_stdin.write(buf, bytes_read);
+                    // Forward input to the child.
+                    (void)pipe_stdin.write(buf, bytes_read);
                 } else {
-                    pipe_stdin.close(Pipe::WRITE);
+                    // EOF on input: close write end so the child receives EOF on stdin.
+                    spdlog::debug("Close the write end of the pipe to signal EOF to the child");
+                    pipe_stdin.close_write();
                     dataset_stdin.close();
                 }
             }
+            // Child stdout is readable: forward to STDOUT dataset.
             if (FD_ISSET(pipe_stdout.read_handle(), &readfds)) {
                 int bytes_read = pipe_stdout.read(buf, sizeof(buf));
-                dataset_stdout_ptr->write(buf, bytes_read);
+                (void)dataset_stdout_ptr->write(buf, bytes_read);
             }
+            // Child stderr is readable: forward to STDERR.
             if (FD_ISSET(pipe_stderr.read_handle(), &readfds)) {
                 int bytes_read = pipe_stderr.read(buf, sizeof(buf));
                 dataset_stderr_ptr->write(buf, bytes_read);
             }
         }
 
+        int return_code = 0;
+        int status = 0;
+        syscalls::checked_waitpid(child_pid, &status, 0);
+        if (WIFEXITED(status)) {
+            return_code = WEXITSTATUS(status);
+            spdlog::debug("Child exited with status {} return_code {}", status, return_code);
+            // Normalize SIGTERM exit code to 0.
+            if (int SIGTERM_EXIT = 128 + SIGTERM; return_code == SIGTERM_EXIT) { return_code = 0; }
+        }
         return return_code;
     }
 };
 
-UnixBatchRunner *UnixBatchRunner::instance = nullptr;
+UnixBatchRunner* UnixBatchRunner::instance = nullptr;
 
-int main(int argc, const char *argv[]) {
+int main(int argc, const char* argv[]) {
     setenv("_EDC_ADD_ERRNO2", "1", 1);
     try {
         UnixBatchRunner runner;
         return runner.run(argc, argv);
-    } catch (const std::exception &e) {
+    } catch (const std::exception& e) {
         spdlog::error(e.what());
         return 12;
     }
