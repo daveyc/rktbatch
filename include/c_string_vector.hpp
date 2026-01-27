@@ -18,7 +18,7 @@ namespace rkt {
  * A tiny container that stores heap-allocated C-style strings. The purpose of this container is to create
  * exception safe C-string arrays for use with POSIX system calls.
  *
- * The container owns the pointers it stores (allocated with `strdup`) and releases them with `free` in the destructor.
+ * The container owns the pointers it stores (allocated with `checked_strdupG) and releases them with `free` in the destructor.
  */
 class c_string_vector {
     std::vector<const char*> data;
@@ -93,8 +93,9 @@ public:
      * Append a null-terminated C string by duplicating it.
      * @param s Pointer to the source C string (can be null).
      *
-     * The string is copied using `strdup`, and the container takes ownership
-     * of the allocated buffer.
+     * The string is copied using `checked_strdup`, and the container takes ownership
+     * of the allocated buffer. If the string is null it is stored as a null pointer.
+     * The null pointer case is useful for building null-terminated argv/envp arrays.
      */
     void push_back(const char* s) {
         data.push_back(s ? strings::checked_strdup(s) : nullptr);
@@ -104,7 +105,7 @@ public:
      * Append a `std::string` by duplicating its contents.
      * @param s Reference to the source `std::string`.
      *
-     * The contents are copied into a heap-allocated C string via `strdup`.
+     * The contents are copied into a heap-allocated C string via `checked_strdup`.
      */
     void push_back(const std::string& s) {
         data.push_back(strings::checked_strdup(s));
@@ -171,7 +172,7 @@ public:
      */
     ~c_string_vector() {
         for (const char* s : data) {
-            std::free(const_cast<char*>(s));
+            if (s) std::free(const_cast<char*>(s));
         }
         data.clear();
     }

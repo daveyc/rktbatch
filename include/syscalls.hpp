@@ -12,6 +12,7 @@
  * Wrapper functions for system calls that throw exceptions on error.
  */
 namespace rkt::syscalls {
+
 [[nodiscard]] inline int dup(int oldfd) {
     const int fd = ::dup(oldfd);
     if (fd == -1) throwError("dup() failed");

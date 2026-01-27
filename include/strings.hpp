@@ -20,7 +20,7 @@ namespace rkt::strings {
  */
 inline char* checked_strdup(const char* old) {
     char* s = strdup(old);
-    spdlog::trace("Checked strdup {}", s);
+    spdlog::debug("Duplicated string '{}' to '{}'", old, s ? s : "nullptr");
     if (!s) throw std::bad_alloc();
     return s;
 }
