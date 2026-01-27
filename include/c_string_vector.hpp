@@ -18,7 +18,7 @@ namespace rkt {
  * A tiny container that stores heap-allocated C-style strings. The purpose of this container is to create
  * exception safe C-string arrays for use with POSIX system calls.
  *
- * The container owns the pointers it stores (allocated with `checked_strdupG) and releases them with `free` in the destructor.
+ * The container owns the pointers it stores (allocated with `checked_strdup`) and releases them with `free` in the destructor.
  */
 class c_string_vector {
     std::vector<const char*> data;
