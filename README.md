@@ -13,6 +13,13 @@ git submodule update --init --recursive
 
 Build using `make`. To install to an MVS load library, run `make install`. By default, it installs to `$USER.LOAD(RKTBATCH)`.
 
+## Installing
+
+Download the `rktbatch` binary from a release to the z/OS UNIX file system and copy the file to a load data set:
+```sh
+cp rktbatch "//'HLQ.LOADLIB(RKTBATCH)'"
+```
+
 ## Usage
 ```
 Usage: RKTBATCH [--help] [--version] [--disable-console-commands] [--log-level VAR] [program]...
