@@ -89,7 +89,7 @@ curl --request POST \               # POST API call to Jira
 ```
 ## Console commands
 
-`RKTBATCH` implements the MVS STOP command, making it possible to stop the utility when it is running as a started task. Other batch shell utilities such as `COZBATCH` do not offer this capability.
+`RKTBATCH` implements the MVS STOP command, making it possible to stop the utility when it is running as a started task. 
 ```
 P MYJOB
 ```
