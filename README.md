@@ -15,7 +15,7 @@ Build using `make`. To install to an MVS load library, run `make install`. By de
 
 ## Installing
 
-Download the `rktbatch` binary from a release to the z/OS UNIX file system and copy the file to a load data set:
+Download the `rktbatch` binary from a release to the z/OS UNIX file system and copy the file to a load library data set (must be a PDSE):
 ```sh
 cp rktbatch "//'HLQ.LOADLIB(RKTBATCH)'"
 ```
