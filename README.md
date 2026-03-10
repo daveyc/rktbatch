@@ -9,9 +9,17 @@
 ### Install dependencies
 ```
 git submodule update --init --recursive
+chtag -c iso8859-1 -t -R argparse spdlog
 ```
 
 Build using `make`. To install to an MVS load library, run `make install`. By default, it installs to `$USER.LOAD(RKTBATCH)`.
+
+## Installing
+
+Download the `rktbatch` binary from a release to the z/OS UNIX file system and copy the file to a load library data set (must be a PDSE):
+```sh
+cp rktbatch "//'HLQ.LOADLIB(RKTBATCH)'"
+```
 
 ## Usage
 ```
@@ -82,7 +90,7 @@ curl --request POST \               # POST API call to Jira
 ```
 ## Console commands
 
-`RKTBATCH` implements the MVS STOP command, making it possible to stop the utility when it is running as a started task. Other batch shell utilities such as `COZBATCH` do not offer this capability.
+`RKTBATCH` implements the MVS STOP command, making it possible to stop the utility when it is running as a started task. 
 ```
 P MYJOB
 ```
