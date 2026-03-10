@@ -9,6 +9,7 @@
 ### Install dependencies
 ```
 git submodule update --init --recursive
+chtag -c iso8859-1 -t -R argparse spdlog
 ```
 
 Build using `make`. To install to an MVS load library, run `make install`. By default, it installs to `$USER.LOAD(RKTBATCH)`.
