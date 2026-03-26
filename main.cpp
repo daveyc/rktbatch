@@ -42,11 +42,11 @@ namespace strings = rkt::strings;
 extern "OS_UPSTACK" {
     int bpxwdyn_fn(const char*);
 }
-
 using bpxwdyn_t = decltype(bpxwdyn_fn);
 
+// Shutdown ECB for waking selectex loop
 static int shutdown_ecb = 0;
-static int fd_map[3];
+// PID of the spawned child process
 static pid_t child_pid = 0;
 
 // Post the given ECB to wake a waiting select or any WAIT.
@@ -131,7 +131,7 @@ static void setup_signal_handlers() {
 
 // Spawn the target program or login shell with redirected I/O.
 // Sets up process group and inheritance options.
-static void spawn_program(rkt::c_string_vector& args) {
+static void spawn_program(rkt::c_string_vector& args, int fd_map[]) {
     spdlog::debug("Spawning program...");
     auto envp = make_env();
     if (!args.is_empty()) {
@@ -201,6 +201,7 @@ static int run(int argc, const char* argv[]) {
     rkt::file* dataset_stderr_ptr = dataset_stderr.is_open() ? &dataset_stderr : &sysout;
 
     // Create pipes for child process I/O redirection.
+    int fd_map[3] = {-1, -1, -1};
     rkt::pipe pipe_stdin, pipe_stdout, pipe_stderr;
     fd_map[0] = syscalls::dup(pipe_stdin.read_handle());
     fd_map[1] = syscalls::dup(pipe_stdout.write_handle());
@@ -213,19 +214,21 @@ static int run(int argc, const char* argv[]) {
 
     setup_signal_handlers();
 
+    bool stop_command_received = false;
     // Start console command listener thread if not disabled.
     if (!disable_console_commands) {
-        std::thread console_thread([]() {
+        std::thread console_thread([&stop_command_received]() mutable {
             spdlog::info("Listening for console commands");
             int concmd = 0;
             char modstr[128] = {};
             while (true) {
                 if (__console(nullptr, modstr, &concmd) == -1) {
-                    spdlog::warn("__console() {}: {}", (errno == EINTR ? "interrupted" : "error", strerror(errno)));
+                    spdlog::warn("__console() {}: {}", (errno == EINTR ? "interrupted" : "error"), strerror(errno));
                     break;
                 }
                 if (concmd == _CC_stop) {
                     spdlog::info("STOP command received");
+                    stop_command_received = true;
                     kill_process(child_pid, SIGTERM);
                 }
             }
@@ -234,13 +237,13 @@ static int run(int argc, const char* argv[]) {
     }
 
     rkt::c_string_vector args(program_args);
-    spawn_program(args);
+    spawn_program(args, fd_map);
 
     // Main I/O relay loop.
     // - Build read/write fd_sets for select: monitor child's stdout/stderr for readability
-    //   and the parent → child stdin pipe for writability.
+    //   and the parent -> child stdin pipe for writability.
     // - Use selectex with the shutdown ECB so the loop can be interrupted by SIGCHLD.
-    // - If selectex returns 0, the shutdown ECB was posted → exit the loop.
+    // - If selectex returns 0, the shutdown ECB was posted -> exit the loop.
     // - When the stdin pipe is writable, read from the STDIN dataset and write to the
     //   child's stdin pipe. If read returns <= 0, close the write end to signal EOF
     //   to the child and close the dataset.
@@ -304,9 +307,10 @@ static int run(int argc, const char* argv[]) {
     syscalls::checked_waitpid(child_pid, &status, 0);
     if (WIFEXITED(status)) {
         return_code = WEXITSTATUS(status);
-        spdlog::debug("Child exited with status {} return_code {}", status, return_code);
-        // Normalize SIGTERM exit code to 0.
-        if (int SIGTERM_EXIT = 128 + SIGTERM; return_code == SIGTERM_EXIT) { return_code = 0; }
+        spdlog::debug("Child exited with status {} return_code {} stop_command_received {}",
+            status, return_code, stop_command_received);
+        // Normalize SIGTERM exit code to 0 if STOP command was received.
+        if (stop_command_received) { return_code = 0; }
     }
     return return_code;
 }
